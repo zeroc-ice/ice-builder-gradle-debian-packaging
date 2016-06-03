@@ -1,0 +1,41 @@
+#!/usr/bin/make -f
+# -*- makefile -*-
+
+#DEB_BUILD_OPTIONS += nocheck notest
+
+export DH_VERBOSE=1
+
+# This has to be exported to make some magic below work.
+export DH_OPTIONS
+
+NAME		= gradle-ice-builder-plugin
+VERSION		= 1.3.6
+DESTDIR		= $(CURDIR)/debian/tmp
+PREFIX		= /usr
+
+GRADLE		= gradle 
+GRADLE_OPTS	= -g $(CURDIR)/.gradle \
+                  --offline \
+                  -PlicenseURL="file:///$(PREFIX)/share/doc/$(NAME)/copyright" \
+                  -PlocalOnly=true \
+                  -PDESTDIR=$(DESTDIR) \
+                  -Pprefix=$(PREFIX)
+
+
+export JAVA_HOME := /usr/lib/jvm/default-java
+
+%:
+	dh $@ --with maven_repo_helper
+
+override_dh_auto_build-indep:
+	$(GRADLE) $(GRADLE_OPTS) assemble
+
+override_dh_auto_install-indep:
+	$(GRADLE) $(GRADLE_OPTS) install
+
+override_dh_auto_clean-indep:
+	-$(GRADLE) $(GRADLE_OPTS) clean
+	rm -rf $(CURDIR)/.gradle
+
+get-orig-source:
+	uscan --verbose --download-current-version --rename --force-download --repack

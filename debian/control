@@ -1,0 +1,22 @@
+Source: ice-builder-gradle
+Section: java
+Priority: extra
+Maintainer: ZeroC, Inc. <support@zeroc.com>
+Uploaders: Ondřej Surý <ondrej@debian.org>
+Build-Depends: debhelper (>= 9),
+               default-jdk,
+               gradle,
+               maven-repo-helper
+Standards-Version: 3.9.8
+Homepage: https://zeroc.com
+Vcs-Git: https://anonscm.debian.org/git/collab-maint/ice-builder-gradle.git
+Vcs-Browser: https://anonscm.debian.org/git/collab-maint/ice-builder-gradle.git/
+
+Package: gradle-ice-builder-plugin
+Architecture: all
+Section: java
+Description: Gradle plug-in for developing Ice applications in Java
+ The Ice Builder for Gradle provides a Gradle plug-in named
+ slice. This plug-in manages the compilation of Slice files to
+ Java. It compiles your Slice files with slice2java, and it is also
+ capable of generating Freeze maps and indices with slice2freezej.
