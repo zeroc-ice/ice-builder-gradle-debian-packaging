@@ -38,4 +38,4 @@ override_dh_auto_clean-indep:
 	rm -rf $(CURDIR)/.gradle
 
 get-orig-source:
-	uscan --verbose --download-current-version --rename --force-download --repack
+	uscan --verbose --download-current-version --force-download --repack
