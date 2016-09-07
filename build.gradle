@@ -27,9 +27,26 @@ apply plugin: 'maven'
 sourceCompatibility = 1.7
 targetCompatibility = 1.7
 
+if(!localOnly.toBoolean()) {
+    repositories {
+        mavenCentral()
+    }
+}
+
 dependencies {
     compile gradleApi()
     compile localGroovy()
+
+    if(!localOnly.toBoolean()) {
+        testCompile 'junit:junit:4.12'
+        testCompile 'com.github.stefanbirkner:system-rules:1.16.0'
+    }
+}
+
+test {
+    testLogging.showStandardStreams = true
+    testLogging.exceptionFormat = "full"
+    onlyIf { ! localOnly.toBoolean() }
 }
 
 sourceSets {
@@ -43,7 +60,7 @@ sourceSets {
     }
 }
 
-version  = "1.3.6"
+version  = "1.3.13"
 group = "com.zeroc.gradle.ice-builder"
 
 if(!localOnly.toBoolean()) {
@@ -78,10 +95,10 @@ if(!localOnly.toBoolean()) {
     // the version of gradle needed to build plugin.
     //
     task wrapper(type: Wrapper) {
-        gradleVersion = "2.11"
+        gradleVersion = "2.14"
     }
 } else {
-    prefix = prefix ? prefix : (System.properties['os.name'].toLowerCase().contains('windows') ? 
+    prefix = prefix ? prefix : (System.properties['os.name'].toLowerCase().contains('windows') ?
         "C:\\ice-builder-gradle-${project.version}" : "/opt/ice-builder-gradle-${project.version}")
 
     def jarDir = (prefix == "/usr" || prefix == "/usr/local") ? "${prefix}/share/java" : "${prefix}/lib"
@@ -125,22 +142,22 @@ if(!localOnly.toBoolean()) {
     }
 
     jar.dependsOn(writeNewPom)
-    
+
     task groovydocJar(type: Jar, dependsOn: groovydoc) {
         classifier = 'groovydoc'
         from groovydoc
         destinationDir = new File("$buildDir/libs")
     }
-    
+
     assemble.dependsOn(groovydocJar)
-    
+
     task sourcesJar(type: Jar, dependsOn: jar) {
         classifier = 'sources'
         from sourceSets.main.allSource
         destinationDir = new File("$buildDir/libs")
     }
     assemble.dependsOn(sourcesJar)
-    
+
     task install(type: Copy, dependsOn: assemble, overwrite: true) {
         from "${pomName}"
         from "$buildDir/libs/${jar.archiveName}"

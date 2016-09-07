@@ -6,8 +6,9 @@
 
 package com.zeroc.gradle.icebuilder.slice;
 
-import org.gradle.api.NamedDomainObjectContainer
 import org.gradle.api.GradleException
+import org.gradle.api.logging.Logging
+import org.gradle.api.NamedDomainObjectContainer
 
 class SliceExtension {
 
@@ -23,11 +24,14 @@ class SliceExtension {
     private def jarDir = null
     private def cppPlatform = null
     private def cppConfiguration = null
+    private def compat = null
 
     private def env = []
+    private def initialized = false
     def output
 
     private static Configuration configuration = null
+    private static final def LOGGER = Logging.getLogger(SliceExtension)
 
     class Configuration {
 
@@ -41,15 +45,16 @@ class SliceExtension {
         def _jarDir = null
         def _cppPlatform = null
         def _cppConfiguration = null
+        def _compat = null
         def _env = []
 
-        Configuration(iceHome = null) {
-            _iceHome = iceHome ? iceHome : getIceHome();
+        Configuration(iceHome = null, freezeHome = null) {
+            _iceHome = iceHome ?: getIceHome();
             _freezeHome = freezeHome
 
             // Guess the cpp platform and cpp configuration to use with Windows source builds
-            _cppConfiguration = cppConfiguration ? cppConfiguration : System.getenv("CPP_CONFIGURATION")
-            _cppPlatform = cppPlatform ? cppPlatform : System.getenv("CPP_PLATFORM")
+            _cppConfiguration = cppConfiguration ?: System.getenv("CPP_CONFIGURATION")
+            _cppPlatform = cppPlatform ?: System.getenv("CPP_PLATFORM")
 
             def os = System.properties['os.name']
 
@@ -61,7 +66,7 @@ class SliceExtension {
                 // If freezeHome is not set we assume slice2freezej resides in the same location as slice2java
                 // otherwise slice2freezej will be located in the freeze home bin directory.
                 //
-                _slice2freezej = getSlice2freezej(freezeHome ? freezeHome : iceHome)
+                _slice2freezej = getSlice2freezej(_freezeHome ? _freezeHome : _iceHome)
 
                 //
                 // Setup the environment required to run slice2java/slice2freezej commands
@@ -86,6 +91,15 @@ class SliceExtension {
                 _iceVersion = getIceVersion(_iceHome)
 
                 //
+                // --compat only available for Ice 3.7 and higher
+                //
+                if(compareVersions(_iceVersion, '3.7') >= 0) {
+                    _compat = compat ?: false
+                } else if(compat != null) {
+                    LOGGER.warn("Property \"compat\" unavailable for Ice ${_iceVersion}.")
+                }
+
+                //
                 // Guess the slice and jar directories of the Ice distribution we are using
                 //
                 if(_iceHome in ["/usr", "/usr/local"]) {
@@ -94,7 +108,7 @@ class SliceExtension {
                 } else {
                     _sliceDir = [_iceHome, "slice"].join(File.separator)
                     _jarDir = _srcDist ?
-                        [_iceHome, "java", "lib"].join(File.separator) :
+                        [_iceHome, _compat ? "java-compat" : "java", "lib"].join(File.separator) :
                         [_iceHome, "lib"].join(File.separator)
                 }
             }
@@ -149,23 +163,26 @@ class SliceExtension {
             def iceVersion = null
 
             sout.toString().split("\\r?\\n").each {
-                if (it.indexOf("HKEY_LOCAL_MACHINE\\Software\\ZeroC\\Ice") != -1) {
-                    def installDir = getWin32InstallDir(it)
-                    if (installDir != null) {
-                        def version = getIceVersion(installDir).split("\\.")
-                        if (version.length == 3) {
-                            //
-                            // Check if version is greater than current version
-                            //
-                            if (iceVersion == null || version[0] > iceVersion[0] ||
-                                (version[0] == iceVersion[0] && version[1] > iceVersion[1]) ||
-                                (version[0] == iceVersion[0] && version[1] == iceVersion[1] &&
-                                 version[2] > iceVersion[2])) {
-                                iceInstallDir = installDir
-                                iceVersion = version
+                try{
+                    if (it.indexOf("HKEY_LOCAL_MACHINE\\Software\\ZeroC\\Ice") != -1) {
+                        def installDir = getWin32InstallDir(it)
+                        if (installDir != null) {
+                            def version = getIceVersion(installDir).split("\\.")
+                            if (version.length == 3) {
+                                //
+                                // Check if version is greater than current version
+                                //
+                                if (iceVersion == null || version[0] > iceVersion[0] ||
+                                    (version[0] == iceVersion[0] && version[1] > iceVersion[1]) ||
+                                    (version[0] == iceVersion[0] && version[1] == iceVersion[1] &&
+                                     version[2] > iceVersion[2])) {
+                                    iceInstallDir = installDir
+                                    iceVersion = version
+                                }
                             }
                         }
                     }
+                } catch(e){
                 }
             }
             return iceInstallDir
@@ -184,6 +201,11 @@ class SliceExtension {
                     throw new GradleException("${command[0]} command failed: ${p.exitValue()}")
                 }
                 return serr.toString().trim()
+            } else if(!_srcDist) {
+                // Only throw an exception if we are not using a source distribution. A binary distribution should
+                // always have slice2java, howerver a source distribution may not. For example, during a clean.
+                throw new GradleException("slice2java (${slice2java}) not found. Please ensure that Ice is installed " +
+                                          "and the iceHome property (${iceHome}) is correct.")
             } else {
                 return ""
             }
@@ -242,11 +264,26 @@ class SliceExtension {
 
             return sliceCompiler
         }
+
+        // 1 is a > b
+        // 0 if a == b
+        // -1 if a < b
+        def compareVersions(a, b) {
+            def verA = a.tokenize('.')
+            def verB = b.tokenize('.')
+
+            for (int i = 0; i < Math.min(verA.size(), verB.size()); ++i) {
+                if (verA[i] != verB[i]) {
+                    return verA[i] <=> verB[i]
+                }
+            }
+            // Common indices match. Assume the longest version is the most recent
+            verA.size() <=> verB.size()
+        }
     }
 
     SliceExtension(java) {
         this.java = java
-        init()
     }
 
     def java(Closure closure) {
@@ -257,20 +294,29 @@ class SliceExtension {
         }
     }
 
-    private void init() {
-        Configuration c = null
-        if (iceHome) {
-            c = new Configuration(iceHome)
-        } else {
-            if (configuration == null) {
-                configuration = new Configuration()
+    private def parseVersion(v) {
+        if(v) {
+            def vv = v.tokenize('.')
+            if(v.indexOf('a') != -1) {
+                return "${vv[0]}.${vv[1].replace('a', '.0-alpha')}"
+            } else if (v.indexOf('b') != -1) {
+                return "${vv[0]}.${vv[1].replace('b', '.0-beta')}"
+            } else {
+                return v
             }
-            c = configuration
+        } else {
+            return null;
         }
+    }
+
+    private void init() {
+        LOGGER.debug('Initializing configuration')
+        initialized = true // must happen before calling setters
+
+        Configuration c = new Configuration(iceHome, freezeHome)
 
         iceHome = c._iceHome
-
-        iceVersion = c._iceVersion
+        iceVersion = parseVersion(c._iceVersion)
         srcDist = c._srcDist
         freezeHome = c._freezeHome
         sliceDir = c._sliceDir
@@ -279,70 +325,113 @@ class SliceExtension {
         jarDir = c._jarDir
         cppPlatform = c._cppPlatform
         cppConfiguration = c._cppConfiguration
+        compat = c._compat
         env = c._env
+
+        LOGGER.debug("Property: iceHome = ${iceHome}")
+        LOGGER.debug("Property: iceVersion = ${iceVersion}")
+        LOGGER.debug("Property: srcDist = ${srcDist}")
+        LOGGER.debug("Property: freezeHome = ${freezeHome}")
+        LOGGER.debug("Property: sliceDir = ${sliceDir}")
+        LOGGER.debug("Property: slice2java = ${slice2java}")
+        LOGGER.debug("Property: slice2freezej = ${slice2freezej}")
+        LOGGER.debug("Property: jarDir = ${jarDir}")
+        LOGGER.debug("Property: cppPlatform = ${cppPlatform}")
+        LOGGER.debug("Property: cppConfiguration = ${cppConfiguration}")
+        LOGGER.debug("Property: compat = ${compat}")
+        LOGGER.debug("Property: env = ${env}")
+
+        assert initialized == true
     }
 
     def getIceHome() {
+        lazyInit()
         return iceHome
     }
 
     def setIceHome(value) {
         iceHome = value
-        init()
+        initialized = false
     }
 
     def getIceVersion() {
+        lazyInit()
         return iceVersion
     }
 
     def getSrcDist() {
+        lazyInit()
         return srcDist
     }
 
     def getFreezeHome() {
+        lazyInit()
         return freezeHome
     }
 
     def setFreezeHome(value) {
         freezeHome = value
-        init()
+        initialized = false
     }
 
     def getSliceDir() {
+        lazyInit()
         return sliceDir
     }
 
     def getSlice2java() {
+        lazyInit()
         return slice2java
     }
 
     def getSlice2freezej() {
+        lazyInit()
         return slice2freezej
     }
 
     def getJarDir() {
+        lazyInit()
         return jarDir
     }
 
     def getCppPlatform() {
+        lazyInit()
         return cppPlatform
     }
 
     def setCppPlatform(value) {
         cppPlatform = value
-        init()
+        initialized = false
     }
 
     def getCppConfiguration() {
+        lazyInit()
         return cppConfiguration
     }
 
     def setCppConfiguration(value) {
         cppConfiguration = value
-        init()
+        initialized = false
+    }
+
+    def getCompat() {
+        lazyInit()
+        return compat
+    }
+
+    def setCompat(value) {
+        compat = value
+        initialized = false
     }
 
     def getEnv() {
+        lazyInit()
         return env
+    }
+
+    def lazyInit() {
+        if(!initialized) {
+            init()
+        }
     }
 }
