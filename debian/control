@@ -1,7 +1,7 @@
 Source: ice-builder-gradle
 Section: java
 Priority: extra
-Maintainer: ZeroC, Inc. <support@zeroc.com>
+Maintainer: José Gutiérrez de la Concha <jose@zeroc.com>
 Uploaders: Ondřej Surý <ondrej@debian.org>
 Build-Depends: debhelper (>= 9),
                default-jdk,
@@ -9,8 +9,8 @@ Build-Depends: debhelper (>= 9),
                maven-repo-helper
 Standards-Version: 3.9.8
 Homepage: https://zeroc.com
-Vcs-Git: https://anonscm.debian.org/git/collab-maint/ice-builder-gradle.git
-Vcs-Browser: https://anonscm.debian.org/git/collab-maint/ice-builder-gradle.git/
+Vcs-Git: https://github.com/zeroc-ice/ice-builder-gradle-debian-packaging.git
+Vcs-Browser: https://github.com/zeroc-ice/ice-builder-gradle-debian-packaging.git
 
 Package: gradle-ice-builder-plugin
 Architecture: all
