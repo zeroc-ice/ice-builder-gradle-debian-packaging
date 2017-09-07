@@ -1,6 +1,6 @@
 // **********************************************************************
 //
-// Copyright (c) 2014-2016 ZeroC, Inc. All rights reserved.
+// Copyright (c) 2014-2017 ZeroC, Inc. All rights reserved.
 //
 // **********************************************************************
 
@@ -51,8 +51,7 @@ class SliceTask extends DefaultTask {
         }
 
         processJava()
-
-        processFreezeJ(project.slice.freezej)
+        processFreezeJ()
     }
 
     @InputFiles
@@ -65,12 +64,14 @@ class SliceTask extends DefaultTask {
         return project.slice.output
     }
 
-    def processFreezeJ(freezej) {
+    def processFreezeJ() {
+        def freezej = project.slice.freezej
+
         // Set of source files and all dependencies.
         Set files = []
-        if(project.slice.freezej.files) {
-            files.addAll(project.slice.freezej.files)
-            getS2FDependencies(project.slice.freezej).values().each({ files.addAll(it) })
+        if(freezej.files) {
+            files.addAll(freezej.files)
+            getS2FDependencies(freezej).values().each({ files.addAll(it) })
         }
 
         def state = new FreezeJBuildState()
@@ -80,8 +81,9 @@ class SliceTask extends DefaultTask {
         def rebuild = false
 
         def args = buildS2FCommandLine(freezej)
-        // If the command line changes rebuild.
-        if(args != state.args) {
+        // If the command line changes or the slice2freezej compiler (always the first argument)
+        // has been updated then rebuild.
+        if(args != state.args || getTimestamp(new File(args[0])) > state.timestamp) {
             rebuild = true
         }
 
@@ -107,9 +109,16 @@ class SliceTask extends DefaultTask {
             return
         }
 
-        LOGGER.info("running slice2freezej on the following slice files")
-        freezej.files.each { LOGGER.info("    ${it}") }
-
+        if(freezej.files) {
+            LOGGER.info("running slice2freezej on the following slice files")
+            freezej.files.each { LOGGER.info("    ${it}") }
+        } else if (!stateFile.isFile()) {
+            // The state file has never been written and and we have no
+            // files to process. No reason to continue as it will only
+            // write an empty dependency file.
+            LOGGER.info("nothing to do")
+            return
+        }
 
         // List of generated java source files.
         def generated = executeS2F(freezej)
@@ -177,9 +186,11 @@ class SliceTask extends DefaultTask {
 
         def p = command.execute(project.slice.env, null)
         p.waitForProcessOutput(sout, serr)
+
+        printWarningsAndErrors(serr)
+
         if (p.exitValue() != 0) {
-            println serr.toString()
-            throw new GradleException("${command[0]} command failed: ${p.exitValue()}")
+            throw new GradleException("${command[0]} failed with exit code: ${p.exitValue()}")
         }
 
         return parseSliceDependencyXML(new XmlSlurper().parseText(sout.toString()))
@@ -205,9 +216,11 @@ class SliceTask extends DefaultTask {
 
         def p = command.execute(project.slice.env, null)
         p.waitForProcessOutput(sout, serr)
+
+        printWarningsAndErrors(serr)
+
         if (p.exitValue() != 0) {
-            println serr.toString()
-            throw new GradleException("${command[0]} command failed: ${p.exitValue()}")
+            throw new GradleException("${command[0]} failed with exit code: ${p.exitValue()}")
         }
         return getS2FGenerated(freezej)
     }
@@ -216,7 +229,10 @@ class SliceTask extends DefaultTask {
         def command = []
         command.add(project.slice.slice2freezej)
         command.add("--output-dir=" + project.slice.output.getAbsolutePath())
-        command.add("-I${project.slice.sliceDir}")
+        if (project.slice.sliceDir) {
+            command.add("-I${project.slice.sliceDir}")
+        }
+
         freezej.include.each {
             command.add('-I' + it)
         }
@@ -340,7 +356,6 @@ class SliceTask extends DefaultTask {
         }
     }
 
-
     def processJava() {
         // Dictionary of A->[B] where A is a slice file and B is the list of generated
         // source files.
@@ -385,6 +400,14 @@ class SliceTask extends DefaultTask {
 
         project.slice.java.each {
             processJavaSet(it, s2jDependencies, state, generated, built, sourceSet)
+        }
+
+        if(built.isEmpty() && !stateFile.isFile()) {
+            // The state file has never been written and and we have no
+            // files to process. No reason to continue as it will only
+            // write an empty dependency file.
+            LOGGER.info("nothing to do")
+            return
         }
 
         // The set of generated files to remove.
@@ -443,8 +466,11 @@ class SliceTask extends DefaultTask {
         def prevSS = state.sourceSet[java.name]
 
         Set toBuild = []
-        // If the source set is new or the sourceSet arguments are different then rebuild all slice files.
-        if(prevSS == null || ss.args != prevSS.args) {
+
+        // If the source set is new, the sourceSet arguments are different,
+        // or the slice2java compiler (always the first argument) has been updated,
+        // then rebuild all slice files.
+        if(prevSS == null || ss.args != prevSS.args || getTimestamp(new File(ss.args[0])) > state.timestamp) {
             java.files.each {
                 toBuild.add(it)
             }
@@ -485,7 +511,9 @@ class SliceTask extends DefaultTask {
     def buildS2JCommandLine(java) {
         def command = []
         command.add(project.slice.slice2java)
-        command.add("-I${project.slice.sliceDir}")
+        if (project.slice.sliceDir) {
+            command.add("-I${project.slice.sliceDir}")
+        }
 
         java.include.each {
             command.add('-I' + it)
@@ -497,6 +525,16 @@ class SliceTask extends DefaultTask {
 
         if(project.slice.compat) {
             command.add('--compat')
+        }
+
+        //
+        // If the ice version is less than 3.7 it is still possible that we are compiling
+        // 3.7 slice files.
+        //
+        // compareIceVersion returns -1 if iceVersion < 3.7
+        //
+        if(project.slice.compareIceVersion('3.7') == -1) {
+            command.add('-D__SLICE2JAVA_COMPAT__')
         }
 
         return command
@@ -519,9 +557,11 @@ class SliceTask extends DefaultTask {
 
         def p = command.execute(project.slice.env, null)
         p.waitForProcessOutput(sout, serr)
+
+        printWarningsAndErrors(serr, sout)
+
         if (p.exitValue() != 0) {
-            println serr.toString()
-            throw new GradleException("${command[0]} command failed: ${p.exitValue()}")
+            throw new GradleException("${command[0]} failed with exit code: ${p.exitValue()}")
         }
         return parseGeneratedXML(new XmlSlurper().parseText(sout.toString()))
     }
@@ -542,10 +582,14 @@ class SliceTask extends DefaultTask {
 
         def p = command.execute(project.slice.env, null)
         p.waitForProcessOutput(sout, serr)
+
+        printWarningsAndErrors(serr)
+
         if (p.exitValue() != 0) {
-            println serr.toString()
-            throw new GradleException("${command[0]} command failed: ${p.exitValue()}")
+            throw new GradleException("${command[0]} failed with exit code: ${p.exitValue()}")
         }
+
+        LOGGER.info("processing dependencies:\n${command}")
 
         return parseSliceDependencyXML(new XmlSlurper().parseText(sout.toString()))
     }
@@ -560,7 +604,7 @@ class SliceTask extends DefaultTask {
         }
 
         if(!file.isFile()) {
-            throw new GradleException("${it}: cannot stat")
+            throw new GradleException("${file}: cannot stat")
         }
 
         def t = file.lastModified()
@@ -666,12 +710,11 @@ class SliceTask extends DefaultTask {
                 }
             }
             catch(Exception ex) {
-                LOGGER.info("invalid XML: ${stateFile}")
-                println ex
+                LOGGER.error("invalid XML: ${stateFile}")
+                LOGGER.error(ex)
             }
         }
     }
-
 
     // Process the generated XML which is of the format:
     //
@@ -748,6 +791,47 @@ class SliceTask extends DefaultTask {
                 } else {
                     it.delete()
                 }
+            }
+        }
+    }
+
+    def printWarningsAndErrors(serr, sout = null) {
+        def lineSep = System.getProperty("line.separator")
+        def errLines = serr.toString().split(lineSep).findAll { !it.trim().isEmpty() }
+        def outLines = []
+
+        //
+        // stdout is always xml
+        //
+        if(sout) {
+            def xml = new XmlSlurper().parseText(sout.toString())
+            if(xml.name() != "generated") {
+                throw new GradleException("malformed XML: expected `generated'")
+            }
+
+            xml.children().each {
+                if(it.name() == "source") {
+                    it.children().each {
+                        if(it.name() == "output") {
+                            def lines = it.text().split(lineSep).findAll { !it.trim().isEmpty() }
+                            outLines.addAll(lines)
+                        }
+                    }
+                }
+            }
+        }
+
+        def warningMatch = /(.*):[0-9]+:\s+warning:(.*)/
+
+        for(line in errLines + outLines) {
+            switch(line) {
+                case ~warningMatch:
+                    LOGGER.warn(line.trim())
+                    break
+                default:
+                    // These should all be errors
+                    LOGGER.error(line.trim())
+                    break
             }
         }
     }

@@ -1,6 +1,6 @@
 // **********************************************************************
 //
-// Copyright (c) 2014-2016 ZeroC, Inc. All rights reserved.
+// Copyright (c) 2014-2017 ZeroC, Inc. All rights reserved.
 //
 // **********************************************************************
 
@@ -16,6 +16,7 @@ class SliceExtension {
 
     private def iceHome = null
     private def iceVersion = null
+    private def iceArtifactVersion = null
     private def srcDist = false
     private def freezeHome = null
     private def sliceDir = null
@@ -91,31 +92,55 @@ class SliceExtension {
                 _iceVersion = getIceVersion(_iceHome)
 
                 //
+                // This can only happen if iceHome is set to a source distribution. In this case we log a warning
+                // and return partially initialized. We DO NOT want to throw an exception because we could be in the
+                // middle of a clean, in which case slice2java will be missing.
+                //
+                if(!_iceVersion) {
+                    LOGGER.warn("Unable to determine the Ice version using slice2java (${slice2java}) from " +
+                                "iceHome (${iceHome}). This is expected when cleaning.")
+                    return
+                }
+
+                //
                 // --compat only available for Ice 3.7 and higher
                 //
-                if(compareVersions(_iceVersion, '3.7') >= 0) {
+                if(SliceExtension.compareVersions(_iceVersion, '3.7') >= 0) {
                     _compat = compat ?: false
                 } else if(compat != null) {
-                    LOGGER.warn("Property \"compat\" unavailable for Ice ${_iceVersion}.")
+                    LOGGER.warn("Property \"slice.compat\" unavailable for Ice ${_iceVersion}.")
                 }
 
                 //
                 // Guess the slice and jar directories of the Ice distribution we are using
                 //
-                if(_iceHome in ["/usr", "/usr/local"]) {
-                    _sliceDir = [_iceHome, "share", "Ice-${_iceVersion}", "slice"].join(File.separator)
-                    _jarDir = [_iceHome, "share", "java"].join(File.separator)
-                } else {
-                    _sliceDir = [_iceHome, "slice"].join(File.separator)
-                    _jarDir = _srcDist ?
-                        [_iceHome, _compat ? "java-compat" : "java", "lib"].join(File.separator) :
-                        [_iceHome, "lib"].join(File.separator)
+                def sliceDirectories = [
+                    [_iceHome, "share", "slice"],                         // Common shared slice directory
+                    [_iceHome, "share", "ice", "slice"],                  // Ice >= 3.7
+                    [_iceHome, "share", "Ice-${_iceVersion}", "slice"],   // Ice < 3.7
+                    [_iceHome, "slice"]                                   // Opt/source installs & Windows distribution
+                ]
+
+                def jarDirectories = [
+                    [_iceHome, "share", "java"],                          // Default usr install
+                    [_iceHome, _compat ? "java-compat" : "java", "lib"],  // Source distribution
+                    [_iceHome, "lib"]                                     // Opt style install & Windows distribution
+                ]
+
+                def sliceDirCandidates = sliceDirectories.collect { it.join(File.separator) }
+                def jarDirCandidates = jarDirectories.collect { it.join(File.separator) }
+
+                _sliceDir = sliceDirCandidates.find { new File(it).exists() }
+                _jarDir = jarDirCandidates.find { new File(it).exists() }
+
+                if (!_sliceDir) {
+                    LOGGER.warn("Unable to locate slice directory in iceHome (${iceHome})")
                 }
             }
         }
 
         def getIceHome() {
-            if(System.env.ICE_HOME != null) {
+            if (System.env.ICE_HOME != null) {
                 return System.env.ICE_HOME
             }
 
@@ -167,18 +192,10 @@ class SliceExtension {
                     if (it.indexOf("HKEY_LOCAL_MACHINE\\Software\\ZeroC\\Ice") != -1) {
                         def installDir = getWin32InstallDir(it)
                         if (installDir != null) {
-                            def version = getIceVersion(installDir).split("\\.")
-                            if (version.length == 3) {
-                                //
-                                // Check if version is greater than current version
-                                //
-                                if (iceVersion == null || version[0] > iceVersion[0] ||
-                                    (version[0] == iceVersion[0] && version[1] > iceVersion[1]) ||
-                                    (version[0] == iceVersion[0] && version[1] == iceVersion[1] &&
-                                     version[2] > iceVersion[2])) {
-                                    iceInstallDir = installDir
-                                    iceVersion = version
-                                }
+                            def version = getIceVersion(installDir)
+                            if(iceVersion == null || compareVersions(version, iceVersion) == 1) {
+                                iceInstallDir = installDir
+                                iceVersion = version
                             }
                         }
                     }
@@ -207,7 +224,7 @@ class SliceExtension {
                 throw new GradleException("slice2java (${slice2java}) not found. Please ensure that Ice is installed " +
                                           "and the iceHome property (${iceHome}) is correct.")
             } else {
-                return ""
+                return null;
             }
         }
 
@@ -223,36 +240,31 @@ class SliceExtension {
         // Return the path to the specified slice compiler (slice2java|slice2freezej) with respect to
         // the specified homeDir (iceHome|freezeHome)
         //
-        def getSliceCompiler(compilerName, homeDir) {
+        def getSliceCompiler(name, homeDir) {
             def os = System.properties['os.name']
             //
             // Check if we are using a Slice source distribution
             //
             def srcDist = new File([homeDir, "java", "build.gradle"].join(File.separator)).exists()
+            def compilerName = os.contains('Windows') ? "${name}.exe" : name
             def sliceCompiler = null
+
             //
             // Set the location of the sliceCompiler executable
             //
             if (os.contains("Windows")) {
-                if (srcDist) {
-                    //
-                    // Ice >= 3.7 Windows source distribution, the compiler is located in the platform
-                    // configuration depend directory. Otherwise cppPlatform and cppConfiguration will be null and
-                    // it will fallback to the common bin directory used with Ice < 3.7.
-                    //
-                    if (_cppPlatform != null && _cppConfiguration != null) {
-                        sliceCompiler = [homeDir, "cpp", "bin", _cppPlatform, _cppConfiguration, "${compilerName}.exe"].join(File.separator)
-                    }
-                } else {
-                    //
-                    // With Ice >= 3.7 Windows binary distribution we use the compiler Win32/Release
-                    // bin directory. We assume that if the file exists at this location we are using Ice >= 3.7
-                    // distribution otherwise it will fallback to the common bin directory used with Ice < 3.7.
-                    //
-                    def path = [homeDir, "build", "native", "bin", "Win32", "Release", "${compilerName}.exe"].join(File.separator)
-                    if (new File(path).exists()) {
-                        sliceCompiler = path
-                    }
+
+                //
+                // For Windows source distribution we first check for <IceHome>\cpp\bin\<cppPlatform>\<cppConfiguration>
+                // that correspond with Ice 3.7 or greater source distribution.
+                ///
+                // For Windows binary distribution we first check for <IceHome>\tools that correspond with NuGet package
+                // layout.
+                //
+                def basePath = srcDist ? [homeDir, "cpp", "bin", _cppPlatform, _cppConfiguration] : [homeDir, "tools"]
+                basePath = basePath.join(File.separator)
+                if(new File(basePath).exists()) {
+                    sliceCompiler = [basePath, compilerName].join(File.separator)
                 }
             }
 
@@ -263,22 +275,6 @@ class SliceExtension {
             }
 
             return sliceCompiler
-        }
-
-        // 1 is a > b
-        // 0 if a == b
-        // -1 if a < b
-        def compareVersions(a, b) {
-            def verA = a.tokenize('.')
-            def verB = b.tokenize('.')
-
-            for (int i = 0; i < Math.min(verA.size(), verB.size()); ++i) {
-                if (verA[i] != verB[i]) {
-                    return verA[i] <=> verB[i]
-                }
-            }
-            // Common indices match. Assume the longest version is the most recent
-            verA.size() <=> verB.size()
         }
     }
 
@@ -316,7 +312,8 @@ class SliceExtension {
         Configuration c = new Configuration(iceHome, freezeHome)
 
         iceHome = c._iceHome
-        iceVersion = parseVersion(c._iceVersion)
+        iceVersion = c._iceVersion
+        iceArtifactVersion = parseVersion(c._iceVersion)
         srcDist = c._srcDist
         freezeHome = c._freezeHome
         sliceDir = c._sliceDir
@@ -344,6 +341,31 @@ class SliceExtension {
         assert initialized == true
     }
 
+    // 1 is a > b
+    // 0 if a == b
+    // -1 if a < b
+    static def compareVersions(a, b) {
+        def verA = a.tokenize('.')
+        def verB = b.tokenize('.')
+
+        for (int i = 0; i < Math.min(verA.size(), verB.size()); ++i) {
+            if (verA[i] != verB[i]) {
+                return verA[i] <=> verB[i]
+            }
+        }
+        // Common indices match. Assume the longest version is the most recent
+        verA.size() <=> verB.size()
+    }
+
+    // Compare iceVersion with version
+    // 1 is iceVersion > version
+    // 0 if iceVersion == version
+    // -1 if iceVersion < version
+    def compareIceVersion(version) {
+        lazyInit()
+        return compareVersions(iceVersion, version)
+    }
+
     def getIceHome() {
         lazyInit()
         return iceHome
@@ -357,6 +379,11 @@ class SliceExtension {
     def getIceVersion() {
         lazyInit()
         return iceVersion
+    }
+
+    def getIceArtifactVersion() {
+        lazyInit()
+        return iceArtifactVersion
     }
 
     def getSrcDist() {
