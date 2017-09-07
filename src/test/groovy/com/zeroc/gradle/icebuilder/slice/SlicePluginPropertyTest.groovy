@@ -1,44 +1,22 @@
+// **********************************************************************
+//
+// Copyright (c) 2014-2017 ZeroC, Inc. All rights reserved.
+//
+// **********************************************************************
+
 package com.zeroc.gradle.icebuilder.slice
 
-import org.gradle.api.Project
-import org.gradle.testfixtures.ProjectBuilder
-import org.junit.After
-import org.junit.Before
-import org.junit.BeforeClass
-import org.junit.contrib.java.lang.system.EnvironmentVariables
 import org.junit.Rule
 import org.junit.Test
+import org.junit.contrib.java.lang.system.EnvironmentVariables
 
-import static org.junit.Assert.assertNotNull
-import static org.junit.Assert.assertTrue
-import static org.junit.Assert.fail
-import static org.junit.Assume.assumeNotNull
+import static org.junit.Assert.*
+import static org.junit.Assume.*
 
-class SlicePluginPropertyTest {
-
-    def project = null
-    def static os = null
+class SlicePluginPropertyTest extends TestCase {
 
     @Rule
     public final EnvironmentVariables environmentVariables = new EnvironmentVariables();
-
-    @BeforeClass
-    public static void initialize() {
-        os = System.properties['os.name']
-    }
-
-    @Before
-    public void applySlicePlugin() {
-        project = ProjectBuilder.builder().build()
-        project.pluginManager.apply 'java'
-        project.pluginManager.apply 'slice'
-    }
-
-    @After
-    public void cleanup() {
-        project.delete()
-        project = null
-    }
 
     @Test
     public void pluginAddsCompileSliceTaskToProject() {
@@ -47,6 +25,8 @@ class SlicePluginPropertyTest {
 
     @Test
     public void testAutoDetectIceHome() {
+        // This test only works if ICE_HOME is not set
+        assumeTrue(System.getenv()['ICE_HOME'] == null)
         assertTrue(project.slice.iceHome != "")
         assertTrue(project.slice.srcDist == false)
         assertTrue(project.slice.iceVersion != "" && project.slice.iceVersion != null)
@@ -56,8 +36,10 @@ class SlicePluginPropertyTest {
 
     @Test
     public void testManualBinDistIceHome() {
+        // This test only works if ICE_HOME is not set
+        assumeTrue(System.getenv()['ICE_HOME'] == null)
         def iceHome = project.slice.iceHome
-        project.slice.iceHome = iceHome // forces re-initialization
+        project.slice.iceHome = iceHome
         assertTrue(project.slice.iceHome != "")
         assertNotNull(project.slice.iceHome)
         assertTrue(project.slice.srcDist == false)
@@ -72,7 +54,7 @@ class SlicePluginPropertyTest {
         //
         // Test an bogus iceHome (non srcDist)
         //
-        def tmpIceHome = File.createTempDir("iceHome", "dir")
+        def tmpIceHome = File.createTempDir()
         tmpIceHome.deleteOnExit()
         project.slice.iceHome = tmpIceHome.toString()
         try {
@@ -87,14 +69,15 @@ class SlicePluginPropertyTest {
     public void testIceHomeWithNoSlice2Java() {
         //
         // Test that if iceHome is a srcDist and slice2java is missing that we can still
-        // initialize the configuration without failure
+        // initialize (at least partially) the configuration without failure
         //
 
-        // Create temporary iceHome with fake structure that build expects
-        def tmpIceHome = File.createTempDir("iceHome", "dir")
+        // Create temporary iceHome with fake structure that slice extension requires
+        def tmpIceHome = File.createTempDir()
         tmpIceHome.deleteOnExit()
         def tmpBuildGralde = new File([tmpIceHome.toString(), "java", "build.gradle"].join(File.separator))
         tmpBuildGralde.mkdirs()
+        tmpBuildGralde.deleteOnExit()
         assertTrue(tmpBuildGralde.exists())
 
         project.slice.iceHome = tmpIceHome.toString()
@@ -102,13 +85,15 @@ class SlicePluginPropertyTest {
         assertTrue(project.slice.iceHome == tmpIceHome.toString())
         assertTrue(project.slice.srcDist == true)
         assertTrue(project.slice.iceVersion == null)
+        assertTrue(project.slice.sliceDir == null)
+        assertTrue(project.slice.jarDir == null)
     }
-
 
     @Test
     public void testCppPlatformAndConfigurationFromEnvironment() {
         environmentVariables.set("CPP_CONFIGURATION", "Release");
         environmentVariables.set("CPP_PLATFORM", "Win32");
+        forceReinitialization()
 
         assertTrue(project.slice.cppConfiguration == "Release")
         assertTrue(project.slice.cppPlatform == "Win32")
@@ -120,7 +105,6 @@ class SlicePluginPropertyTest {
             cppConfiguration = "Debug"
             cppPlatform = "x64"
         }
-
         assertTrue(project.slice.cppConfiguration == "Debug")
         assertTrue(project.slice.cppPlatform == "x64")
     }
@@ -129,6 +113,7 @@ class SlicePluginPropertyTest {
     public void testCppPlatformAndConfigurationOverrideEnvironment() {
         environmentVariables.set("CPP_CONFIGURATION", "Release");
         environmentVariables.set("CPP_PLATFORM", "Win32");
+        forceReinitialization()
 
         project.slice {
             cppConfiguration = "Debug"

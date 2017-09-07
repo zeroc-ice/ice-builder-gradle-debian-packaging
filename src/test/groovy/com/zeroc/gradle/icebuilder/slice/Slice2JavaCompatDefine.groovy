@@ -6,14 +6,22 @@
 
 package com.zeroc.gradle.icebuilder.slice
 
+import org.junit.Before
 import org.junit.Test
 
 import static org.junit.Assert.assertTrue
+import static org.junit.Assume.assumeTrue
 
-class Slice2JavaPluginTest extends TestCase {
+class Slice2JavaCompatDefine extends TestCase {
+
+    @Before
+    public void checkVersion() {
+        // For what we are testing our ice version must be < 3.7
+        assumeTrue(project.slice.compareIceVersion('3.7') == -1)
+    }
 
     @Test
-    public void testSlice2JavaWithDefaults() {
+    public void testSlice2JavaCompatDefine() {
         // Where builder checks for slice files by default
         pathToFile([project.rootDir, 'src', 'main', 'slice']).mkdirs()
 
@@ -21,30 +29,21 @@ class Slice2JavaPluginTest extends TestCase {
 
         project.tasks.compileSlice.execute()
 
-        assertTrue(pathToFile([project.rootDir, 'build', 'generated-src', 'Test']).exists())
-        assertTrue(pathToFile([project.rootDir, 'build', 'generated-src', 'Test', 'Hello.java']).exists())
-    }
-
-    @Test
-    public void testSlice2JavaSliceSrcDir() {
-        def sliceDir = pathToFile([project.rootDir, 'src', 'other', 'slice'])
-        sliceDir.mkdirs()
-
-        project.slice.java {
-            srcDir = sliceDir.toString()
-        }
-
-        writeTestSliceToFile(pathToFile([project.rootDir, 'src', 'other', 'slice', 'Test.ice']))
-
-        project.tasks.compileSlice.execute()
-
-        assertTrue(pathToFile([project.rootDir, 'build', 'generated-src', 'Test']).exists())
-        assertTrue(pathToFile([project.rootDir, 'build', 'generated-src', 'Test', 'Hello.java']).exists())
-
+        assertTrue(pathToFile([project.rootDir,
+                               'build',
+                               'generated-src',
+                               'com',
+                               'zeroc',
+                               'Test',
+                               'Hello.java']).exists())
     }
 
     private void writeTestSliceToFile(file) {
         file << """
+            |#ifdef __SLICE2JAVA_COMPAT__
+            |[[\"java:package:com.zeroc\"]]        [[\"java:package:com.zeroc\"]]
+            |#endif
+            |
             |module Test
             |{
             |
