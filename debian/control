@@ -7,7 +7,7 @@ Build-Depends: debhelper (>= 9),
                default-jdk,
                gradle,
                maven-repo-helper
-Standards-Version: 3.9.8
+Standards-Version: 4.0.0
 Homepage: https://zeroc.com
 Vcs-Git: https://github.com/zeroc-ice/ice-builder-gradle-debian-packaging.git
 Vcs-Browser: https://github.com/zeroc-ice/ice-builder-gradle-debian-packaging.git
