@@ -1,14 +1,14 @@
 Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: Ice Builder for Gradle
 Source: https://github.com/zeroc-ice/ice-builder-gradle
-Files-Excluded: gradle gradlew* .gitignore .travis.yml .gitattributes
+Files-Excluded: gradle gradlew*
 
 Files: *
-Copyright: 2014-2016, ZeroC, Inc.
+Copyright: 2014-2017, ZeroC, Inc.
 License: BSD-3-clause
 
 Files: debian/*
-Copyright: 2014-2016 ZeroC, Inc.
+Copyright: 2014-2017 ZeroC, Inc.
 	   2016 Ondřej Surý
 License: BSD-3-clause
 
