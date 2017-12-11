@@ -1,3 +1,10 @@
+ice-builder-gradle (1.4.3-1) unstable; urgency=medium
+
+  * New upstream version 1.4.3
+  * Fix excluded files in copyright
+
+ -- José Gutiérrez de la Concha <jose@zeroc.com>  Mon, 11 Dec 2017 15:54:30 +0100
+
 ice-builder-gradle (1.4.2-1) unstable; urgency=medium
 
   * New upstream version 1.4.2
