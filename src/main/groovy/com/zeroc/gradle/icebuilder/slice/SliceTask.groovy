@@ -75,7 +75,7 @@ class SliceTask extends DefaultTask {
         }
 
         def state = new FreezeJBuildState()
-        def stateFile = new File(project.buildDir, "slice2freezej.df.xml")
+        def stateFile = new File(project.slice.output, "slice2freezej.df.xml")
         state.read(stateFile)
 
         def rebuild = false
@@ -101,6 +101,15 @@ class SliceTask extends DefaultTask {
         // Check if the prior set of slice files has changed.
         if(!rebuild) {
             rebuild = state.slice.any { !files.contains(it) }
+        }
+
+        // Check that any previously generated files still exist
+        if(!rebuild) {
+            files.each { sliceFile ->
+                rebuild = state.slice[sliceFile] != null && state.slice[sliceFile].any { generatedFile ->
+                    !generatedFile.isFile() || getTimestamp(generatedFile) > state.timestamp
+                }
+            }
         }
 
         // Bail out if there is nothing to do (in theory this should not occur).
@@ -367,7 +376,7 @@ class SliceTask extends DefaultTask {
         // Complete set of slice files.
         Set files = []
 
-        def stateFile = new File(project.buildDir, "slice2java.df.xml")
+        def stateFile = new File(project.slice.output, "slice2java.df.xml")
 
         // Dictionary of A->[B] where A is the source set name and B is
         // the JavaSourceSet
@@ -476,18 +485,23 @@ class SliceTask extends DefaultTask {
             }
         } else {
             // s2jDependencies is populated in getInputFiles.
-            java.files.each {
-                // `it' here is each of the slice files.
-                //
+            java.files.each { sliceFile ->
                 // Build the slice file if it wasn't built before in this source set,
                 // or its timestamp is newer than the last build time,
                 // or any of its dependencies have a timestamp newer than the last build time.
-                if(!prevSS.slice.contains(it) || (getTimestamp(it) > state.timestamp) ||
-                    s2jDependencies[it].any {
-                        // `it' here is each of the dependencies of the slice file.
-                        getTimestamp(it) > state.timestamp
+                if(!prevSS.slice.contains(sliceFile) || (getTimestamp(sliceFile) > state.timestamp) ||
+                    s2jDependencies[sliceFile].any { dependency ->
+                        getTimestamp(dependency) > state.timestamp
                     }) {
-                        toBuild.add(it)
+                        toBuild.add(sliceFile)
+                }
+                //
+                // Check that any previously generated files still exist
+                //
+                else if(state.slice[sliceFile] != null && state.slice[sliceFile].any { generatedFile ->
+                        !generatedFile.isFile() || getTimestamp(generatedFile) > state.timestamp
+                    }) {
+                    toBuild.add(sliceFile)
                 }
             }
         }
