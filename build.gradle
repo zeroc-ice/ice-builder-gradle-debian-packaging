@@ -12,7 +12,7 @@ buildscript {
             }
         }
         dependencies {
-            classpath "com.gradle.publish:plugin-publish-plugin:0.9.7"
+            classpath "com.gradle.publish:plugin-publish-plugin:0.9.9"
         }
     }
 }
@@ -63,7 +63,7 @@ sourceSets {
     }
 }
 
-version  = "1.4.3"
+version  = "1.4.5"
 group = "com.zeroc.gradle.ice-builder"
 
 if(!localOnly.toBoolean()) {
@@ -86,7 +86,7 @@ if(!localOnly.toBoolean()) {
     // the version of gradle needed to build plugin.
     //
     task wrapper(type: Wrapper) {
-        gradleVersion = "4.3.1"
+        gradleVersion = "4.4"
     }
 } else {
     prefix = prefix ? prefix : (System.properties['os.name'].toLowerCase().contains('windows') ?
