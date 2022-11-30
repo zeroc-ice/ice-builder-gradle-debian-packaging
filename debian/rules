@@ -28,7 +28,8 @@ GRADLE_OPTS	= --gradle-user-home $(CURDIR)/.gradle \
                   -PlicenseURL="file:///usr/share/doc/gradle-ice-builder-plugin/copyright" \
                   -PlocalOnly=true \
                   -PDESTDIR=$(CURDIR)/debian/tmp \
-                  -Pprefix=/usr
+                  -Pprefix=/usr \
+                  -Dorg.gradle.jvmargs='--add-opens java.base/java.lang=ALL-UNNAMED'
 
 export JAVA_HOME := /usr/lib/jvm/default-java
 
